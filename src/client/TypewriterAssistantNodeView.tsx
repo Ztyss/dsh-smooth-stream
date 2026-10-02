@@ -702,19 +702,20 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
       ? data.blocks.filter(block => block.kind !== 'reasoning')
       : data.blocks
   // dsh 0.2.x mounts this view twice on the same conversation scrollport —
-  // the reasoning row above and the response row below — and `streaming` is
-  // true for both. Two live FollowHosts then fight over port leadership: the
-  // reasoning-row host glides to keep the think block in view while the
-  // response-row host sticks to the bottom, and the viewport visibly jumps
-  // up and falls back on every leadership flip. Give the port to the row
-  // that carries the streaming tail and let the other row leave it entirely
-  // alone (controlScroll=false detaches its follow engine; the effect deps
-  // include controlScroll, so the handoff in both directions re-arms and the
-  // glide's adopt path carries position across). 0.1.x mounts a single row
-  // and keeps the previous behavior.
-  const tailKind = data.blocks[data.blocks.length - 1]?.kind
-  const rowOwnsPort = groupPart === undefined
-    || (groupPart === 'reasoning' ? tailKind === 'reasoning' : tailKind !== 'reasoning')
+  // the reasoning row above and the response row below. Handing the port to
+  // whichever row carries the streaming tail still left the think phase
+  // jumpy: while reasoning streamed, the reasoning-row host owned the port
+  // from a mid-transcript anchor (the empty response row and the turn status
+  // render below it), and the viewport hopped upward as the glide steered
+  // toward positions its bottom-row tuning does not describe. The response
+  // row is the geometric bottom row for the whole turn, so owning it from
+  // the first streamed block reproduces the 0.1.x single-row configuration
+  // the glide was tuned for: think growth happens above the anchor, the
+  // text reveal grows inside it, and ownership never flips mid-turn. The
+  // reasoning row never touches the port — its think box paces its own
+  // reveal and auto-scrolls internally. 0.1.x mounts a single row
+  // (groupPart undefined) and keeps the previous behavior.
+  const rowOwnsPort = groupPart !== 'reasoning'
   const reduced = useMotionReduced(motionPreference)
   // The Host's completion-fold decision for THIS node's inline reasoning:
   // only the answer step folds, only in compact-transcript mode, and only
