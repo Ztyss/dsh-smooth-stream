@@ -701,21 +701,29 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     : groupPart === 'response'
       ? data.blocks.filter(block => block.kind !== 'reasoning')
       : data.blocks
-  // dsh 0.2.x mounts this view twice on the same conversation scrollport —
-  // the reasoning row above and the response row below. Handing the port to
-  // whichever row carries the streaming tail still left the think phase
-  // jumpy: while reasoning streamed, the reasoning-row host owned the port
-  // from a mid-transcript anchor (the empty response row and the turn status
-  // render below it), and the viewport hopped upward as the glide steered
-  // toward positions its bottom-row tuning does not describe. The response
-  // row is the geometric bottom row for the whole turn, so owning it from
-  // the first streamed block reproduces the 0.1.x single-row configuration
-  // the glide was tuned for: think growth happens above the anchor, the
-  // text reveal grows inside it, and ownership never flips mid-turn. The
-  // reasoning row never touches the port — its think box paces its own
-  // reveal and auto-scrolls internally. 0.1.x mounts a single row
-  // (groupPart undefined) and keeps the previous behavior.
-  const rowOwnsPort = groupPart !== 'reasoning'
+  // dsh 0.2.x emits the response row only once the step has reply content
+  // (the kernel's hasAssistantReplyContent gate), so during a pure-think
+  // phase the reasoning row is the step's ONLY row — the geometric bottom
+  // row — and nothing else arms the follow engine. The reasoning row owns
+  // the port for exactly that window: the engine primes at THINK START,
+  // while the port still sits at the user's message, so the flow fill and
+  // the status runway open invisibly — the same invisible prime the 0.1.x
+  // single row got by mounting at turn start. When the first reply content
+  // lands, the kernel mounts the response row and ownership hands off
+  // through the glide's adopt path, which inherits the motion ledger
+  // instead of re-imposing the fill. Without this early prime the response
+  // row's LATE prime imposes fill + runway + reserve on an already-tall
+  // layout in a single frame and teleports the viewport upward — the
+  // mid-reply jump seen on 0.2.x. Once reply content exists the reasoning
+  // row yields (it sits mid-transcript again) and never re-claims; 0.1.x
+  // mounts a single row (groupPart undefined) and keeps the previous
+  // behavior.
+  const hasReplyContent = data.blocks.some(block => {
+    if (block.kind === 'reasoning' || block.kind === 'tool-call') return false
+    if (block.kind === 'text') return block.text.trim() !== ''
+    return true
+  })
+  const rowOwnsPort = groupPart !== 'reasoning' || !hasReplyContent
   const reduced = useMotionReduced(motionPreference)
   // The Host's completion-fold decision for THIS node's inline reasoning:
   // only the answer step folds, only in compact-transcript mode, and only
