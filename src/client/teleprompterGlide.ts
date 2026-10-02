@@ -1787,6 +1787,8 @@ export function useConversationFollow(
     let entranceClamp: {
       readonly element: HTMLElement
       readonly extent: number
+      /** Wrapper height already committed when the clamp armed (0 on mount). */
+      readonly basePx: number
       revealedPx: number
       readonly maxHeight: string
       readonly overflow: string
@@ -2333,22 +2335,33 @@ export function useConversationFollow(
           // The shift path cannot mask an entrance taller than the real gap
           // to status/composer chrome (the geometry invariant in applyVisual
           // catches the excess up in the same frame). Clamp the wrapper's
-          // real height to 0 here — applyVisual below then measures the
-          // pre-insert floor and the mount commits with zero visual delta —
+          // real height here — applyVisual below then measures the
+          // pre-entrance floor and the commit lands with zero visual delta —
           // and let the frame loop raise the clamp at the spring cadence.
+          // A MOUNT entrance carries the wrapper's full height as the extent
+          // (clamp starts at 0). A growth-pulse re-prime on a settled row
+          // carries only the DELTA: starting at 0 there would collapse the
+          // whole committed row mid-stream and pan the viewport up by its
+          // full height, so the clamp starts at the pre-growth height and
+          // reveals only the delta.
           if (
             entrancePending
             && entranceExtent > safeShiftLimit(nextPort, shiftSurfacesOf(nextPort)) + FOLLOW_SETTLE_EPSILON_PX
           ) {
-            entranceClamp = {
-              element: root,
-              extent: entranceExtent,
-              revealedPx: 0,
-              maxHeight: root.style.maxHeight,
-              overflow: root.style.overflow,
+            const fullPx = root.offsetHeight
+            if (fullPx > 0) {
+              const basePx = Math.max(0, fullPx - entranceExtent)
+              entranceClamp = {
+                element: root,
+                extent: entranceExtent,
+                basePx,
+                revealedPx: 0,
+                maxHeight: root.style.maxHeight,
+                overflow: root.style.overflow,
+              }
+              root.style.overflow = 'hidden'
+              root.style.maxHeight = `${basePx}px`
             }
-            root.style.overflow = 'hidden'
-            root.style.maxHeight = '0px'
           }
           // Established before first paint; the matching margin below is
           // written in the same commit, so this held-and-canceled space
@@ -2670,11 +2683,11 @@ export function useConversationFollow(
           }, tuning)
           if (remainingPx <= 0.1) {
             clamp.revealedPx = clamp.extent
-            clamp.element.style.maxHeight = `${clamp.extent}px`
+            clamp.element.style.maxHeight = `${clamp.basePx + clamp.extent}px`
             velocityPxPerSec = 0
           } else {
             clamp.revealedPx = Math.min(clamp.extent, clamp.revealedPx + clampStep.advancePx)
-            clamp.element.style.maxHeight = `${clamp.revealedPx}px`
+            clamp.element.style.maxHeight = `${clamp.basePx + clamp.revealedPx}px`
             velocityPxPerSec = clampStep.velocityPxPerSec
           }
           animatedH = contentHeight - runwayOffset
