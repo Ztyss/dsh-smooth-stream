@@ -1315,6 +1315,17 @@ interface FollowScrollOwnership {
  */
 const followHostScrollPorts = new WeakMap<HTMLElement, FollowScrollOwnership>()
 
+/**
+ * Ports parked mid-turn: the arm died while the turn was still open (a step
+ * boundary on multi-step turns), so its owned geometry — flow fill, runway,
+ * follower ledger, FOLLOW_OWNED_ATTR — is held for the NEXT arm to adopt
+ * instead of being torn down. Tearing down repainted a whole-margin step and
+ * forced the next arm into a fresh imposition; on 0.2.x every step boundary
+ * paid both. The record carries the user-row count at park time so a new
+ * user turn (more user rows) invalidates the inheritance.
+ */
+const followParkedState = new WeakMap<HTMLElement, { userRows: number }>()
+
 /** Clear host ownership only when a new user turn actually starts. */
 function resetHostScrollOwnershipForNewTurn(port: HTMLElement): void {
   const ownership = followHostScrollPorts.get(port)
@@ -1719,6 +1730,7 @@ export function useConversationFollow(
   entranceExtentRef?: { current: number | null },
   revealedCharsRef?: { current: number },
   controlScroll = true,
+  turnOpenRef?: { current: boolean },
 ): void {
   const activeRef = useRef(active)
   const entranceRef = useRef(entrance)
@@ -2309,6 +2321,20 @@ export function useConversationFollow(
           followCompletionGrowthCredit.delete(nextPort)
           followHadStatus.delete(nextPort)
         }
+        // Parked state is only valid within the SAME user turn: a new user
+        // row since the park means the held extent belongs to a finished
+        // conversation and must not seed this stream. Drop the adoption
+        // surface so the fresh path below re-primes cleanly.
+        const parked = followParkedState.get(nextPort)
+        if (parked !== undefined) {
+          if (countUserRows(nextPort) > parked.userRows) {
+            followParkedState.delete(nextPort)
+            nextPort.removeAttribute(FOLLOW_OWNED_ATTR)
+            followMotionStates.delete(nextPort)
+          } else {
+            followParkedState.delete(nextPort)
+          }
+        }
         const inherited = nextPort.hasAttribute(FOLLOW_OWNED_ATTR)
           ? followMotionStates.get(nextPort)
           : undefined
@@ -2854,6 +2880,41 @@ export function useConversationFollow(
       if (!activeRef.current) {
         followTraceUntilMs = Math.max(followTraceUntilMs, performance.now() + 10000)
         followTrace('fast-gate', { sh: host.scrollHeight, st: Math.round(host.scrollTop), pad: Math.round(flowPadOf(host)) })
+        // PARK — the turn is still open (per the caller's turn-state ref; the
+        // 0.2.x DOM has no [data-chat-turn-status] row for turnStatusOf to
+        // find), so another step's arm is expected imminently. Hold the owned
+        // geometry (fill, runway, pad, follower ledger, FOLLOW_OWNED_ATTR)
+        // for that arm to adopt: restoring the runway here repaints a
+        // whole-margin step, and deleting the leader state forces the next
+        // arm into a fresh imposition — the compound discontinuity every
+        // multi-step boundary paid on 0.2.x. The kernel's order-change tail
+        // snap keeps the floor pinned meanwhile. The parked record carries
+        // the user-row count so a genuinely new user turn invalidates it.
+        // A scroll position sitting ON the current floor is a clamp or a
+        // bottom-write — content above shrank and the browser pinned the
+        // scroller — never reader intent, so it does not veto the park.
+        const turnStillOpen = turnOpenRef !== undefined
+          ? turnOpenRef.current
+          : turnStatusOf(host) !== null
+        const parkedFloor = Math.max(0, host.scrollHeight - host.clientHeight)
+        const clampedToFloor = host.scrollTop <= parkedFloor + 1
+        if (
+          turnStillOpen
+          && !followReaderHolds.has(host)
+          && (clampedToFloor || !readerScrolledUp(host))
+        ) {
+          followParkedState.set(host, { userRows: countUserRows(host) })
+          followTrace('park-open-turn', { sh: host.scrollHeight, st: Math.round(host.scrollTop), pad: Math.round(flowPadOf(host)) })
+          releaseRevealScale()
+          debugRuntime.reportFollow(host, null)
+          return
+        }
+        followTrace('park-refused', {
+          status: turnStillOpen ? 1 : 0,
+          holds: followReaderHolds.has(host) ? 1 : 0,
+          clamped: clampedToFloor ? 1 : 0,
+          scrolledUp: readerScrolledUp(host) ? 1 : 0,
+        })
         const stableTail = turnStatusOf(host) === null
           && followTerminalPhases.get(host) !== 'host-cascade'
           && !followHadStatus.has(host)

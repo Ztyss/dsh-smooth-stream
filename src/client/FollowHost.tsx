@@ -23,6 +23,7 @@ export function FollowHost({
   hostRef,
   className,
   entranceActive,
+  turnOpenRef,
   children,
 }: {
   active: boolean
@@ -42,6 +43,8 @@ export function FollowHost({
   className?: string | undefined
   /** Optional marker for a generic row's one-shot entrance animation. */
   entranceActive?: boolean | undefined
+  /** Live turn-open state; lets the engine park (not tear down) at step boundaries. */
+  turnOpenRef?: { current: boolean } | undefined
 }) {
   const localRootRef = useRef<HTMLDivElement>(null)
   const rootRef = hostRef ?? localRootRef
@@ -57,6 +60,7 @@ export function FollowHost({
     entranceExtentRef,
     revealedCharsRef,
     controlScroll,
+    turnOpenRef,
   )
   useEffect(() => {
     if (onGrowth === undefined || typeof ResizeObserver === 'undefined') return

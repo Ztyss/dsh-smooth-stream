@@ -456,6 +456,7 @@ function AnimatedReasoning({
   shouldHoldBack,
   followSpeedCpsRef,
   followRevealScaleRef,
+  snapAutoCollapse,
   t,
 }: {
   text: string
@@ -467,6 +468,8 @@ function AnimatedReasoning({
   shouldHoldBack: () => boolean
   followSpeedCpsRef?: { current: number } | undefined
   followRevealScaleRef?: { current: number } | undefined
+  /** 0.1.x single rows snap the auto-close and let their follower absorb the step; on 0.2.x the collapse lands exactly at the ownership handoff, so it must glide. */
+  snapAutoCollapse: boolean
   t: AssistantProps['t']
 }) {
   const reduced = motionReduced
@@ -622,11 +625,14 @@ function AnimatedReasoning({
             setAutoClosed(false)
             setExpanded(value => !value)
           }}
-          // The auto-close at stream end snaps (no grid-track animation): the
-          // follower's settle spring absorbs the height step through the
-          // compositor, so animating the track too would double-animate the
-          // collapse. Manual toggles while streaming keep the glide.
-          bodyTransition={!autoClosed}
+          // The auto-close at stream end snaps on 0.1.x (no grid-track
+          // animation): the single row's follower absorbs the height step
+          // through the compositor, so animating the track too would
+          // double-animate the collapse. On 0.2.x the collapse lands exactly
+          // at the ownership handoff with nothing left to absorb it, so the
+          // track itself glides and the floor retreats gradually instead of
+          // teleporting. Manual toggles while streaming keep the glide.
+          bodyTransition={!autoClosed || !snapAutoCollapse}
           collapsedContent={(
             <>
               <span className={css.thinkSeparator} aria-hidden />
@@ -773,6 +779,14 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
     ? node.location.turn
     : undefined
+  // Live turn-open state for the follow engine: on 0.2.x multi-step turns an
+  // arm that dies while the turn is still open must PARK its owned geometry
+  // for the next step's arm to adopt instead of tearing down (the teardown
+  // repainted a whole runway step and forced a fresh imposition at every
+  // step boundary). The 0.2.x DOM has no status row for the engine to probe,
+  // so the view supplies the fact directly.
+  const turnOpenRef = useRef(true)
+  turnOpenRef.current = turn === undefined || turn.status === 'open'
   const tail = useTurnData('turn-tail')
   const owner = useMemo<TurnTailOwnerProps | undefined>(() => {
     if (turn?.status !== 'closed' || data.finalNode === undefined) return undefined
@@ -846,6 +860,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
               shouldHoldBack={shouldHoldBack}
               followSpeedCpsRef={reasoningOwnsSpeed && index === last ? rootSpeedRef : undefined}
               followRevealScaleRef={reasoningOwnsSpeed && index === last ? rootRevealScaleRef : undefined}
+              snapAutoCollapse={groupPart === undefined}
               t={t}
             />
           </FoldableReasoning>,
@@ -893,6 +908,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
         revealScaleRef={rootRevealScaleRef}
         predictiveRef={rootPredictiveRef}
         controlScroll={controlScroll && rowOwnsPort}
+        turnOpenRef={turnOpenRef}
       >
         <div className={css.body}>
           {rendered}

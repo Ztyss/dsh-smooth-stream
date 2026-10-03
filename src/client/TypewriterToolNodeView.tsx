@@ -129,6 +129,10 @@ export function wrapFollowNodeView(
     const hostRef = useRef<HTMLDivElement>(null)
     const growing = isGrowingChatNode(props.node)
     const structurallyFollowable = isFollowableChatNode(props.node)
+    // Live turn-open state for the follow engine's step-boundary park (see
+    // TypewriterAssistantNodeView); openAgentLocation already derives it.
+    const turnOpenRef = useRef(true)
+    turnOpenRef.current = structurallyFollowable || openAgentLocation(props.node)
     const structuralRef = useRef(structurallyFollowable)
     const [runtimeFollowable, setRuntimeFollowable] = useState(false)
     const runtimePersistentRef = useRef(false)
@@ -229,6 +233,7 @@ export function wrapFollowNodeView(
         hostRef={hostRef}
         className={entranceCss.surface}
         entranceActive={entering || growthPulse}
+        turnOpenRef={turnOpenRef}
       >
         {createElement(Inner, props)}
       </FollowHost>
